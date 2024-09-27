@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+
+jobs:
+  commit-lint:
+    name: Commit Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          fetch-depth: 0
+      - uses: wagoid/commitlint-github-action@3d28780bbf0365e29b144e272b2121204d5be5f3 # v6.1.2
+
+  code-quality:
+    name: Code Quality
+    needs: commit-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      - name: Setup Biome CLI
+        uses: biomejs/setup-biome@1cbe33ead22c7a2fded3b52fa2893611c815c9b5 # v2.2.1
+      - name: Run Biome
+        run: biome ci
+
+  build-and-test:
+    needs: code-quality
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - 22
+        platform:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    name: "${{matrix.platform}} w/ Node.js ${{matrix.node}}.x"
+    runs-on: ${{matrix.platform}}
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      - name: "Use Node.js ${{matrix.node}}.x"
+        uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
+        with:
+          node-version: ${{matrix.node}}.x
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
