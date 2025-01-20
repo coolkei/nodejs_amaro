@@ -184,7 +184,7 @@ fn do_work(
         let is_mangler_enabled = min_opts.mangle.is_some();
 
         let module = {
-            let module = module.fold_with(&mut resolver(unresolved_mark, top_level_mark, false));
+            let module = module.apply(resolver(unresolved_mark, top_level_mark, false));
 
             let mut module = swc_core::ecma::minifier::optimize(
                 module,
@@ -212,7 +212,11 @@ fn do_work(
             .clone()
             .into_inner()
             .unwrap_or(BoolOr::Data(JsMinifyCommentOption::PreserveSomeComments));
-        minify_file_comments(&comments, preserve_comments);
+        minify_file_comments(
+            &comments,
+            preserve_comments,
+            options.format.preserve_annotations,
+        );
 
         swc_compiler_base::print(
             cm.clone(),
