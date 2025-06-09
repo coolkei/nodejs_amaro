@@ -6,16 +6,12 @@ mod util;
 use std::{backtrace::Backtrace, borrow::Cow, env, panic::set_hook};
 
 use anyhow::{bail, Context};
-use lightningcss::{
-    printer::PrinterOptions,
-    stylesheet::{ParserFlags, StyleSheet},
-    targets::Targets,
-};
+use lightningcss::{printer::PrinterOptions, stylesheet::StyleSheet, targets::Targets};
 use napi::{bindgen_prelude::*, Task};
 use serde::{Deserialize, Serialize};
-use swc_atoms::js_word;
-use swc_cached::regex::CachedRegex;
+use swc_atoms::atom;
 use swc_common::{sync::Lrc, FileName, FilePathMapping, SourceMap, DUMMY_SP};
+use swc_config::regex::CachedRegex;
 use swc_html::{
     ast::{DocumentMode, Namespace},
     codegen::{
@@ -522,7 +518,7 @@ fn minify_inner(
                     Some(context_element) => create_element(context_element)?,
                     _ => swc_html_ast::Element {
                         span: DUMMY_SP,
-                        tag_name: js_word!("template"),
+                        tag_name: atom!("template"),
                         namespace: Namespace::HTML,
                         attributes: vec![],
                         children: vec![],
