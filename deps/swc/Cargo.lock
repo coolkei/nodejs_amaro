@@ -6489,17 +6489,6 @@ dependencies = [
 name = "swc_plugin_macro"
 version = "1.1.0"
 dependencies = [
- "anyhow",
- "swc_common",
- "swc_plugin_runner",
- "wasi-common",
- "wasmtime",
-]
-
-[[package]]
-name = "swc_plugin_macro"
-version = "1.1.0"
-dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.101",
