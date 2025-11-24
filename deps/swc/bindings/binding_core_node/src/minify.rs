@@ -2,10 +2,9 @@ use std::sync::Arc;
 
 use napi::{
     bindgen_prelude::{AbortSignal, AsyncTask, Buffer, External},
-    Env, JsExternal, JsObject, JsUnknown, Task,
+    Task,
 };
 use rustc_hash::FxHashMap;
-use serde::Deserialize;
 use swc_core::{
     base::{
         config::{ErrorFormat, JsMinifyOptions},
@@ -16,35 +15,35 @@ use swc_core::{
     node::{deserialize_json, get_deserialized, MapErr},
 };
 
-use crate::{get_compiler, util::try_with};
+use crate::{get_fresh_compiler, util::try_with};
 
-#[napi(object)]
+#[napi(object, object_to_js = false)]
 pub struct NapiMinifyExtra {
     #[napi(ts_type = "object")]
-    pub mangle_name_cache: Option<NameMangleCache>,
+    pub mangle_name_cache: Option<&'static NameMangleCache>,
 }
 
 struct MinifyTask {
     c: Arc<swc_core::base::Compiler>,
-    code: String,
+    input: Option<MinifyTarget>,
     options: String,
     extras: JsMinifyExtras,
 }
 
-#[derive(Deserialize)]
-#[serde(untagged)]
 enum MinifyTarget {
     /// Code to minify.
     Single(String),
-    /// `{ filename: code }`
-    Map(FxHashMap<String, String>),
+    /// `FxHashMap<String, String>`
+    Json(String),
 }
 
 impl MinifyTarget {
     fn to_file(&self, cm: Lrc<SourceMap>) -> Lrc<SourceFile> {
         match self {
             MinifyTarget::Single(code) => cm.new_source_file(FileName::Anon.into(), code.clone()),
-            MinifyTarget::Map(codes) => {
+            MinifyTarget::Json(json) => {
+                let codes: FxHashMap<String, String> =
+                    serde_json::from_str(json).expect("Invalid JSON");
                 assert_eq!(
                     codes.len(),
                     1,
@@ -65,7 +64,7 @@ impl Task for MinifyTask {
     type Output = TransformOutput;
 
     fn compute(&mut self) -> napi::Result<Self::Output> {
-        let input: MinifyTarget = deserialize_json(&self.code)?;
+        let input = self.input.take().unwrap();
         let options: JsMinifyOptions = deserialize_json(&self.options)?;
 
         try_with(self.c.cm.clone(), false, ErrorFormat::Normal, |handler| {
@@ -93,6 +92,7 @@ fn new_mangle_name_cache() -> NameMangleCache {
 fn minify(
     code: Buffer,
     opts: Buffer,
+    is_json: bool,
     extras: NapiMinifyExtra,
     signal: Option<AbortSignal>,
 ) -> AsyncTask<MinifyTask> {
@@ -100,13 +100,17 @@ fn minify(
     let code = String::from_utf8_lossy(code.as_ref()).to_string();
     let options = String::from_utf8_lossy(opts.as_ref()).to_string();
     let extras = JsMinifyExtras::default()
-        .with_mangle_name_cache(extras.mangle_name_cache.as_deref().cloned());
+        .with_mangle_name_cache(extras.mangle_name_cache.map(|s| (*s).clone()));
 
-    let c = get_compiler();
+    let c = get_fresh_compiler();
 
     let task = MinifyTask {
         c,
-        code,
+        input: Some(if is_json {
+            MinifyTarget::Json(code)
+        } else {
+            MinifyTarget::Single(code)
+        }),
         options,
         extras,
     };
@@ -118,17 +122,23 @@ fn minify(
 pub fn minify_sync(
     code: Buffer,
     opts: Buffer,
+    is_json: bool,
     extras: NapiMinifyExtra,
 ) -> napi::Result<TransformOutput> {
     crate::util::init_default_trace_subscriber();
-    let code: MinifyTarget = get_deserialized(code)?;
+    let code = String::from_utf8_lossy(code.as_ref()).to_string();
+    let input = if is_json {
+        MinifyTarget::Json(code)
+    } else {
+        MinifyTarget::Single(code)
+    };
     let opts = get_deserialized(opts)?;
     let extras = JsMinifyExtras::default()
-        .with_mangle_name_cache(extras.mangle_name_cache.as_deref().cloned());
+        .with_mangle_name_cache(extras.mangle_name_cache.map(|s| (*s).clone()));
 
-    let c = get_compiler();
+    let c = get_fresh_compiler();
 
-    let fm = code.to_file(c.cm.clone());
+    let fm = input.to_file(c.cm.clone());
 
     try_with(
         c.cm.clone(),
