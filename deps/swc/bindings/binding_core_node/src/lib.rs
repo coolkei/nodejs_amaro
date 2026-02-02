@@ -14,6 +14,8 @@ use swc_core::{
     common::{sync::Lazy, FilePathMapping, SourceMap},
 };
 
+#[cfg(feature = "plugin")]
+mod analyze;
 mod bundle;
 mod minify;
 mod parse;
@@ -27,18 +29,24 @@ static COMPILER: Lazy<Arc<Compiler>> = Lazy::new(|| {
     Arc::new(Compiler::new(cm))
 });
 
-#[napi::module_init]
+#[napi_derive::module_init]
 fn init() {
     if cfg!(debug_assertions) || env::var("SWC_DEBUG").unwrap_or_default() == "1" {
         set_hook(Box::new(|panic_info| {
             let backtrace = Backtrace::new();
-            println!("Panic: {:?}\nBacktrace: {:?}", panic_info, backtrace);
+            println!("Panic: {panic_info:?}\nBacktrace: {backtrace:?}");
         }));
     }
 }
 
 fn get_compiler() -> Arc<Compiler> {
     COMPILER.clone()
+}
+
+fn get_fresh_compiler() -> Arc<Compiler> {
+    let cm = Arc::new(SourceMap::new(FilePathMapping::empty()));
+
+    Arc::new(Compiler::new(cm))
 }
 
 #[napi(js_name = "Compiler")]
