@@ -24,12 +24,13 @@ where
             };
 
             if let Some(s) = p.downcast_ref::<String>() {
-                Err(anyhow!("failed to handle: {}", s))
+                Err(anyhow!("failed to handle: {s}"))
             } else if let Some(s) = p.downcast_ref::<&str>() {
-                Err(anyhow!("failed to handle: {}", s))
+                Err(anyhow!("failed to handle: {s}"))
             } else {
                 Err(anyhow!("failed to handle with unknown panic message"))
             }
         },
     )
+    .map_err(|e| e.to_pretty_error())
 }
