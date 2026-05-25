@@ -1,7 +1,7 @@
 const swc = require("../pkg");
 
 describe("transform", () => {
-    it("should work", function () {
+    it("should work", () => {
         const output = swc.transformSync("class Foo {}", {});
 
         expect(output).toMatchInlineSnapshot(`
@@ -16,6 +16,7 @@ describe("transform", () => {
                 _class_call_check(this, Foo);
             };
             ",
+              "diagnostics": [],
             }
         `);
     });
@@ -35,6 +36,7 @@ describe("transform", () => {
                 _class_call_check(this, Foo);
             };
             ",
+              "diagnostics": [],
             }
         `);
     });
@@ -58,6 +60,7 @@ describe("transform", () => {
                 _class_call_check(this, Foo);
             };
             ",
+              "diagnostics": [],
             }
         `);
     });
@@ -110,8 +113,8 @@ describe("parse", () => {
                     "ctxt": 2,
                     "optional": false,
                     "span": {
-                      "end": 289,
-                      "start": 286,
+                      "end": 254,
+                      "start": 251,
                     },
                     "type": "Identifier",
                     "value": "Foo",
@@ -119,8 +122,8 @@ describe("parse", () => {
                   "implements": [],
                   "isAbstract": false,
                   "span": {
-                    "end": 292,
-                    "start": 280,
+                    "end": 257,
+                    "start": 245,
                   },
                   "superClass": null,
                   "superTypeParams": null,
@@ -130,8 +133,8 @@ describe("parse", () => {
               ],
               "interpreter": null,
               "span": {
-                "end": 292,
-                "start": 280,
+                "end": 257,
+                "start": 245,
               },
               "type": "Module",
             }
@@ -156,8 +159,8 @@ describe("parse", () => {
                     "ctxt": 2,
                     "optional": false,
                     "span": {
-                      "end": 302,
-                      "start": 299,
+                      "end": 267,
+                      "start": 264,
                     },
                     "type": "Identifier",
                     "value": "Foo",
@@ -165,8 +168,8 @@ describe("parse", () => {
                   "implements": [],
                   "isAbstract": false,
                   "span": {
-                    "end": 305,
-                    "start": 293,
+                    "end": 270,
+                    "start": 258,
                   },
                   "superClass": null,
                   "superTypeParams": null,
@@ -176,8 +179,8 @@ describe("parse", () => {
               ],
               "interpreter": null,
               "span": {
-                "end": 305,
-                "start": 293,
+                "end": 270,
+                "start": 258,
               },
               "type": "Module",
             }
@@ -194,7 +197,8 @@ describe("minify", () => {
 
         expect(output).toMatchInlineSnapshot(`
             {
-              "code": "let somename=1;console.log(1);",
+              "code": "const somename=1;console.log(1);",
+              "diagnostics": [],
             }
         `);
     });
@@ -207,7 +211,8 @@ describe("minify", () => {
 
         expect(output).toMatchInlineSnapshot(`
             {
-              "code": "let somename=1;console.log(1);",
+              "code": "const somename=1;console.log(1);",
+              "diagnostics": [],
             }
         `);
     });
@@ -226,6 +231,7 @@ describe("print", () => {
               "code": "class Foo {
             }
             ",
+              "diagnostics": [],
             }
         `);
     });
@@ -242,6 +248,7 @@ describe("print", () => {
               "code": "class Foo {
             }
             ",
+              "diagnostics": [],
             }
         `);
     });
