@@ -49,6 +49,12 @@ export interface JsMinifyOptions {
 
   sourceMap?: boolean
 
+  /**
+   * Serializable subset of terser-webpack-plugin's `extractComments`.
+   * `true` behaves like `'some'`.
+   */
+  extractComments?: boolean | "some" | "all" | { regex: string }
+
   outputPath?: string
 
   inlineSourcesContent?: boolean
@@ -97,9 +103,10 @@ export interface JsFormatOptions {
    * - `false`: removes all comments
    * - `'some'`: preserves some comments
    * - `'all'`: preserves all comments
+   * - `{ regex: string }`: preserves comments that match the regex
    * @default false
    */
-  comments?: false | 'some' | 'all'
+  comments?: false | "some" | "all" | { regex: string };
 
   /**
    * Currently noop.
@@ -436,27 +443,27 @@ export interface Options extends Config {
    *
    * "root" - Passes the "root" value through as unchanged.
    * "upward" - Walks upward from the "root" directory, looking for a directory
-   * containing a swc.config.js file, and throws an error if a swc.config.js
+   * containing a .swcrc file, and throws an error if a .swcrc
    * is not found.
    * "upward-optional" - Walk upward from the "root" directory, looking for
-   * a directory containing a swc.config.js file, and falls back to "root"
-   *  if a swc.config.js is not found.
+   * a directory containing a .swcrc file, and falls back to "root"
+   *  if a .swcrc is not found.
    *
    *
    * "root" is the default mode because it avoids the risk that Swc
-   * will accidentally load a swc.config.js that is entirely outside
+   * will accidentally load a .swcrc that is entirely outside
    * of the current project folder. If you use "upward-optional",
    * be aware that it will walk up the directory structure all the
    * way to the filesystem root, and it is always possible that someone
-   * will have a forgotten swc.config.js in their home directory,
+   * will have a forgotten .swcrc in their home directory,
    * which could cause unexpected errors in your builds.
    *
    *
    * Users with monorepo project structures that run builds/tests on a
    * per-package basis may well want to use "upward" since monorepos
-   * often have a swc.config.js in the project root. Running Swc
+   * often have a .swcrc in the project root. Running Swc
    * in a monorepo subdirectory without "upward", will cause Swc
-   * to skip loading any swc.config.js files in the project root,
+   * to skip loading any .swcrc files in the project root,
    * which can lead to unexpected errors and compilation failure.
    */
   rootMode?: "root" | "upward" | "upward-optional";
@@ -546,7 +553,7 @@ export interface Options extends Config {
 
   plugin?: Plugin;
 
-  isModule?: boolean | 'unknown';
+  isModule?: boolean | 'unknown' | 'commonjs';
 
   /**
    * Destination path. Note that this value is used only to fix source path
@@ -684,6 +691,15 @@ export interface JscConfig {
   minify?: JsMinifyOptions;
 
   preserveAllComments?: boolean;
+
+  output?: {
+    /**
+     * This can be used to keep the output ascii-only.
+     * If this option is set, `minify.format.asciiOnly` will be ignored.
+     * @default 'utf8'
+     */
+    charset?: 'utf8' | 'ascii';
+  }
 }
 
 export type JscTarget =
@@ -698,7 +714,7 @@ export type JscTarget =
   | "es2021"
   | "es2022";
 
-export type ParserConfig = TsParserConfig | EsParserConfig;
+export type ParserConfig = TsParserConfig | EsParserConfig | FlowParserConfig;
 export interface TsParserConfig {
   syntax: "typescript";
   /**
@@ -713,6 +729,38 @@ export interface TsParserConfig {
    * Defaults to `false`
    */
   dynamicImport?: boolean;
+}
+
+export interface FlowParserConfig {
+  syntax: "flow";
+  /**
+   * Defaults to `false`.
+   */
+  jsx?: boolean;
+  /**
+   * Defaults to `false`.
+   */
+  all?: boolean;
+  /**
+   * Defaults to `false`.
+   */
+  requireDirective?: boolean;
+  /**
+   * Defaults to `false`.
+   */
+  enums?: boolean;
+  /**
+   * Defaults to `false`.
+   */
+  decorators?: boolean;
+  /**
+   * Defaults to `false`.
+   */
+  components?: boolean;
+  /**
+   * Defaults to `false`.
+   */
+  patternMatching?: boolean;
 }
 
 export interface EsParserConfig {
@@ -853,17 +901,47 @@ export interface ReactConfig {
   /**
    * Enable fast refresh feature for React app
    */
-  refresh?: boolean;
+  refresh?:
+    | boolean
+    | {
+          /**
+           * Identifier for the `react-refresh` register function.
+           *
+           * Defaults to `$RefreshReg$`
+           */
+          refreshReg?: string;
+          /**
+           * Identifier for the `react-refresh` signature function.
+           *
+           * Defaults to `$RefreshSig$`
+           */
+          refreshSig?: string;
+          /**
+           * Flag to emit full signatures.
+           *
+           * Defaults to `false`
+           */
+          emitFullSignatures?: boolean;
+      };
 
   /**
-   * jsx runtime
+   * Decides which runtime to use when transforming JSX.
+   * - `"automatic"` - Automatically imports the functions that JSX transpiles to.
+   * This is the modern approach introduced in React 17+ that eliminates the need to
+   * manually import React in every file that uses JSX.
+   * - `"classic"` - Uses the traditional JSX transform that relies on `React.createElement`
+   * calls. Requires React to be in scope, which was the standard behavior before React 17.
+   * - `"preserve"` - Leaves JSX syntax unchanged without transforming it.
+   * @default "classic"
    */
-  runtime?: 'automatic' | 'classic'
+  runtime?: "automatic" | "classic" | "preserve";
 
   /**
-   * Declares the module specifier to be used for importing the `jsx` and `jsxs` factory functions when using `runtime` 'automatic'
+   * Declares the module specifier to be used for importing the `jsx` and `jsxs` factory
+   * functions when using `runtime` 'automatic'
+   * @default "react"
    */
-  importSource?: string
+  importSource?: string;
 }
 /**
  *  - `import { DEBUG } from '@ember/env-flags';`
@@ -903,7 +981,7 @@ export interface GlobalPassOption {
   /**
    * Name of environment variables to inline.
    *
-   * Defaults to `["NODE_ENV", "SWC_ENV"]`
+   * Defaults to `[]`
    */
   envs?: string[] | Record<string, string>;
 }
@@ -1066,10 +1144,16 @@ export interface BaseModuleConfig {
    */
   importInterop?: "swc" | "babel" | "node" | "none";
   /**
+   * Output extension for generated files.
+   *
+   * Defaults to `js`.
+  */
+  outFileExtension?: "js" | "mjs" | "cjs";
+  /**
    * Emits `cjs-module-lexer` annotation
    * `cjs-module-lexer` is used in Node.js core for detecting the named exports available when importing a CJS module into ESM.
    * swc will emit `cjs-module-lexer` detectable annotation with this option enabled.
-   * 
+   *
    * Defaults to `true` if import_interop is Node, else `false`
    */
   exportInteropAnnotation?: boolean;
@@ -1079,6 +1163,10 @@ export interface BaseModuleConfig {
   ignoreDynamic?: boolean;
   allowTopLevelThis?: boolean;
   preserveImportMeta?: boolean;
+  /**
+   * If set to true, This will resolve top .mjs
+   */
+  resolveFully?: boolean;
 }
 
 export interface Es6Config extends BaseModuleConfig {
@@ -1115,6 +1203,10 @@ export interface Output {
    * Sourcemap (**not** base64 encoded)
    */
   map?: string;
+  /**
+   * Extracted comments collected during minification.
+   */
+  extractedComments?: string[];
 }
 
 export interface MatchPattern { }
@@ -1684,7 +1776,7 @@ export interface JSXAttribute extends Node, HasSpan {
 export type JSXAttributeName = Identifier | JSXNamespacedName;
 
 export type JSXAttrValue =
-  | Literal
+  | StringLiteral
   | JSXExpressionContainer
   | JSXElement
   | JSXFragment;
