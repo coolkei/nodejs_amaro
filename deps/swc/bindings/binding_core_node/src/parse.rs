@@ -6,19 +6,19 @@ use std::{
 use anyhow::Context as _;
 use napi::{
     bindgen_prelude::{AbortSignal, AsyncTask, Buffer},
-    Env, Task,
+    Either, Env, Task,
 };
 use swc_core::{
     base::{
         config::{ErrorFormat, ParseOptions},
-        Compiler,
+        Compiler, SwcComments,
     },
     common::{comments::Comments, FileName, Mark},
     ecma::{transforms::base::resolver, visit::VisitMutWith},
     node::{deserialize_json, get_deserialized, MapErr},
 };
 
-use crate::{get_compiler, util::try_with};
+use crate::{ast_context::serialize_program, get_fresh_compiler, util::try_with};
 
 // ----- Parsing -----
 
@@ -47,15 +47,16 @@ impl Task for ParseTask {
             .cm
             .new_source_file(self.filename.clone().into(), self.src.clone());
 
+        let local_comments = SwcComments::default();
         let comments = if options.comments {
-            Some(self.c.comments() as &dyn Comments)
+            Some(&local_comments as &dyn Comments)
         } else {
             None
         };
 
         let program = try_with(self.c.cm.clone(), false, ErrorFormat::Normal, |handler| {
             let mut p = self.c.parse_js(
-                fm,
+                fm.clone(),
                 handler,
                 options.target,
                 options.syntax,
@@ -73,7 +74,7 @@ impl Task for ParseTask {
         })
         .convert_err()?;
 
-        let ast_json = serde_json::to_string(&program)?;
+        let ast_json = serialize_program(program, &fm)?;
 
         Ok(ast_json)
     }
@@ -89,7 +90,7 @@ impl Task for ParseFileTask {
     type Output = String;
 
     fn compute(&mut self) -> napi::Result<Self::Output> {
-        let program = try_with(self.c.cm.clone(), false, ErrorFormat::Normal, |handler| {
+        let (program, fm) = try_with(self.c.cm.clone(), false, ErrorFormat::Normal, |handler| {
             self.c.run(|| {
                 let options: ParseOptions = deserialize_json(&self.options)?;
 
@@ -99,15 +100,15 @@ impl Task for ParseFileTask {
                     .load_file(&self.path)
                     .context("failed to read module")?;
 
-                let c = self.c.comments().clone();
+                let local_comments = SwcComments::default();
                 let comments = if options.comments {
-                    Some(&c as &dyn Comments)
+                    Some(&local_comments as &dyn Comments)
                 } else {
                     None
                 };
 
                 let mut p = self.c.parse_js(
-                    fm,
+                    fm.clone(),
                     handler,
                     options.target,
                     options.syntax,
@@ -121,12 +122,12 @@ impl Task for ParseFileTask {
                     options.syntax.typescript(),
                 ));
 
-                Ok(p)
+                Ok((p, fm))
             })
         })
         .convert_err()?;
 
-        let ast_json = serde_json::to_string(&program)?;
+        let ast_json = serialize_program(program, &fm)?;
 
         Ok(ast_json)
     }
@@ -136,17 +137,25 @@ impl Task for ParseFileTask {
     }
 }
 
+fn stringify(src: Either<Buffer, String>) -> String {
+    match src {
+        Either::A(src) => String::from_utf8_lossy(src.as_ref()).into_owned(),
+        Either::B(src) => src,
+    }
+}
+
 #[napi]
 pub fn parse(
-    src: String,
+    src: Either<Buffer, String>,
     options: Buffer,
     filename: Option<String>,
     signal: Option<AbortSignal>,
 ) -> AsyncTask<ParseTask> {
     crate::util::init_default_trace_subscriber();
 
-    let c = get_compiler();
-    let options = String::from_utf8_lossy(options.as_ref()).to_string();
+    let c = get_fresh_compiler();
+    let src = stringify(src);
+    let options = String::from_utf8_lossy(options.as_ref()).into_owned();
     let filename = if let Some(value) = filename {
         FileName::Real(value.into())
     } else {
@@ -165,10 +174,15 @@ pub fn parse(
 }
 
 #[napi]
-pub fn parse_sync(src: String, opts: Buffer, filename: Option<String>) -> napi::Result<String> {
+pub fn parse_sync(
+    src: Either<Buffer, String>,
+    opts: Buffer,
+    filename: Option<String>,
+) -> napi::Result<String> {
     crate::util::init_default_trace_subscriber();
-    let c = get_compiler();
 
+    let c = get_fresh_compiler();
+    let src = stringify(src);
     let options: ParseOptions = get_deserialized(&opts)?;
     let filename = if let Some(value) = filename {
         FileName::Real(value.into())
@@ -176,18 +190,19 @@ pub fn parse_sync(src: String, opts: Buffer, filename: Option<String>) -> napi::
         FileName::Anon
     };
 
-    let program = try_with(c.cm.clone(), false, ErrorFormat::Normal, |handler| {
+    let (program, fm) = try_with(c.cm.clone(), false, ErrorFormat::Normal, |handler| {
         c.run(|| {
             let fm = c.cm.new_source_file(filename.into(), src);
 
+            let local_comments = SwcComments::default();
             let comments = if options.comments {
-                Some(c.comments() as &dyn Comments)
+                Some(&local_comments as &dyn Comments)
             } else {
                 None
             };
 
             let mut p = c.parse_js(
-                fm,
+                fm.clone(),
                 handler,
                 options.target,
                 options.syntax,
@@ -201,34 +216,35 @@ pub fn parse_sync(src: String, opts: Buffer, filename: Option<String>) -> napi::
                 options.syntax.typescript(),
             ));
 
-            Ok(p)
+            Ok((p, fm))
         })
     })
     .convert_err()?;
 
-    Ok(serde_json::to_string(&program)?)
+    Ok(serialize_program(program, &fm)?)
 }
 
 #[napi]
 pub fn parse_file_sync(path: String, opts: Buffer) -> napi::Result<String> {
     crate::util::init_default_trace_subscriber();
-    let c = get_compiler();
+    let c = get_fresh_compiler();
     let options: ParseOptions = get_deserialized(&opts)?;
 
-    let program = {
+    let (program, fm) = {
         try_with(c.cm.clone(), false, ErrorFormat::Normal, |handler| {
             let fm =
                 c.cm.load_file(Path::new(path.as_str()))
-                    .expect("failed to read program file");
+                    .context("failed to read program file")?;
 
+            let local_comments = SwcComments::default();
             let comments = if options.comments {
-                Some(c.comments() as &dyn Comments)
+                Some(&local_comments as &dyn Comments)
             } else {
                 None
             };
 
             let mut p = c.parse_js(
-                fm,
+                fm.clone(),
                 handler,
                 options.target,
                 options.syntax,
@@ -241,12 +257,12 @@ pub fn parse_file_sync(path: String, opts: Buffer) -> napi::Result<String> {
                 options.syntax.typescript(),
             ));
 
-            Ok(p)
+            Ok((p, fm))
         })
     }
     .convert_err()?;
 
-    Ok(serde_json::to_string(&program)?)
+    Ok(serialize_program(program, &fm)?)
 }
 
 #[napi]
@@ -257,9 +273,9 @@ pub fn parse_file(
 ) -> AsyncTask<ParseFileTask> {
     crate::util::init_default_trace_subscriber();
 
-    let c = get_compiler();
+    let c = get_fresh_compiler();
     let path = PathBuf::from(&path);
-    let options = String::from_utf8_lossy(options.as_ref()).to_string();
+    let options = String::from_utf8_lossy(options.as_ref()).into_owned();
 
     AsyncTask::with_optional_signal(ParseFileTask { c, path, options }, signal)
 }
